@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Beosztás Néző</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+        .calendar-day { border: 1px solid #e5e7eb; border-radius: 4px; padding: 8px; min-height: 80px; display: flex; flex-direction: column; justify-content: space-between; }
+        .day-header { font-size: 0.8rem; font-weight: bold; color: #6b7280; text-align: center; margin-bottom: 4px; }
+        .work-day { background-color: #dbeafe; border-color: #93c5fd; }
+        .rest-day { background-color: #f3f4f6; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen p-4 md:p-8 font-sans">
+    <div class="max-w-4xl mx-auto space-y-6">
+        <div class="flex items-center space-x-3 mb-6">
+            <div class="bg-indigo-100 p-2 rounded-lg">
+                <svg class="w-8 h-8 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+            </div>
+            <div>
+                <h1 class="text-2xl font-bold text-gray-800">Beosztás Néző</h1>
+                <p class="text-gray-500 text-sm">Store Planning – gid-alapú betöltés + naplózás</p>
+            </div>
+        </div>
+
+        <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+            <div class="flex bg-gray-50 rounded-lg p-1 mb-6 border border-gray-200">
+                <div id="tabUrlBtn" onclick="switchTab('url')" class="flex-1 bg-white shadow-sm py-2 text-sm font-medium rounded-md text-gray-700 flex justify-center items-center gap-2 transition-all cursor-pointer">
+                    <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
+                    Google Sheets link
+                </div>
+                <div id="tabCsvBtn" onclick="switchTab('csv')" class="flex-1 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 flex justify-center items-center gap-2 transition-all cursor-pointer">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    Helyi CSV fájl
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Melyik fület olvasod be?</label>
+                    <select id="sheetName" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white">
+                        <option value="" disabled selected>Válassz fület...</option>
+                        <option value="Napi humán">Napi humán</option>
+                        <option value="Áruházi">Áruházi</option>
+                        <option value="Hegy">Hegy</option>
+                        <option value="Fitnesz">Fitnesz</option>
+                        <option value="Mobility">Mobility</option>
+                        <option value="Szezon">Szezon</option>
+                        <option value="Futás">Futás</option>
+                        <option value="Csapat">Csapat</option>
+                        <option value="Úszás">Úszás</option>
+                        <option value="Természet">Természet</option>
+                        <option value="Műhely">Műhely</option>
+                        <option value="Vevőszolgálat">Vevőszolgálat</option>
+                        <option value="Iroda">Iroda</option>
+                        <option value="Copy of JAN">Copy of JAN</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Neved (ahogy a táblában szerepel)</label>
+                    <input type="text" id="personName" placeholder="pl. Kassa Magdolna" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Hónap</label>
+                    <input type="month" id="scheduleMonth" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Órabér – Hétköznap + Szombat (Ft/óra)</label>
+                    <input type="number" id="wageMonSat" value="2100" min="0" step="50" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Órabér – Vasárnap (Ft/óra)</label>
+                    <input type="number" id="wageSun" value="3150" min="0" step="50" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                </div>
+            </div>
+            <p class="text-xs text-gray-400 mb-4">A fizetésbecslés a kiszámolt órákból készül. 25 év alatt SZJA-mentes, így a bruttó = nettó (egyéb levonások nélkül).</p>
+
+            <div id="sectionUrl" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Google Sheets megosztási link</label>
+                    <input type="text" id="sheetUrl" placeholder="https://docs.google.com/spreadsheets/d/...  (a kívánt fül linkje, gid-del)" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                    <p class="text-xs text-gray-400 mt-1">Tipp: nyisd meg a kívánt fület a Google Sheetsben, és onnan másold a linket (tartalmazza a <code>gid=</code> részt). Megosztás: "Bárki a linkkel → Néző".</p>
+                </div>
+            </div>
+
+            <div id="sectionCsv" class="space-y-4 hidden">
+                <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Töltsd fel a letöltött .csv fájlt</label>
+                    <input type="file" id="csvFileInput" accept=".csv" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer">
+                </div>
+            </div>
+
+            <div class="mt-6 flex justify-end">
+                <button id="loadBtn" onclick="processData()" class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-8 rounded-md transition duration-150 w-full md:w-auto">
+                    Beosztás Betöltése
+                </button>
+            </div>
+
+            <div id="loading" class="hidden mt-4 text-center text-blue-600 font-medium">Adatok feldolgozása...</div>
+            <div id="errorMsg" class="hidden mt-4 p-3 bg-red-100 text-red-700 border border-red-200 rounded-md text-sm"></div>
+            <div id="debugHint" class="hidden mt-2 text-xs text-gray-400">Részletes napló a böngésző konzoljában (F12 → Console).</div>
+        </div>
+
+        <div id="results" class="hidden space-y-6">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 text-center">
+                    <p class="text-sm text-gray-500 font-medium">Összes ledolgozott óra</p>
+                    <p class="text-3xl font-bold text-blue-600 mt-1" id="sumTotal">0 óra</p>
+                </div>
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 text-center">
+                    <p class="text-sm text-gray-500 font-medium">Hétköznap + Szombat</p>
+                    <p class="text-3xl font-bold text-gray-800 mt-1" id="sumMonSat">0 óra</p>
+                </div>
+                <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 text-center">
+                    <p class="text-sm text-gray-500 font-medium">Vasárnap</p>
+                    <p class="text-3xl font-bold text-orange-500 mt-1" id="sumSun">0 óra</p>
+                </div>
+            </div>
+
+            <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-lg font-bold text-gray-800">Becsült fizetés</h2>
+                    <span class="text-xs text-gray-400">25 év alatt: bruttó = nettó</span>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="bg-gray-50 rounded-lg p-4 border border-gray-100">
+                        <p class="text-xs text-gray-500 font-medium">Hétköznap + Szombat</p>
+                        <p class="text-xl font-bold text-gray-800 mt-1" id="payMonSat">0 Ft</p>
+                        <p class="text-xs text-gray-400 mt-1" id="payMonSatDetail">0 óra × 0 Ft</p>
+                    </div>
+                    <div class="bg-orange-50 rounded-lg p-4 border border-orange-100">
+                        <p class="text-xs text-orange-600 font-medium">Vasárnap</p>
+                        <p class="text-xl font-bold text-orange-600 mt-1" id="paySun">0 Ft</p>
+                        <p class="text-xs text-orange-400 mt-1" id="paySunDetail">0 óra × 0 Ft</p>
+                    </div>
+                    <div class="bg-blue-50 rounded-lg p-4 border border-blue-200 flex flex-col justify-center">
+                        <p class="text-xs text-blue-600 font-medium">Összesen (becsült)</p>
+                        <p class="text-2xl font-bold text-blue-700 mt-1" id="payTotal">0 Ft</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div class="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                    <h2 class="text-lg font-bold text-gray-800 mb-4" id="calendarTitle">Naptár</h2>
+                    <div class="grid grid-cols-7 gap-1 mb-2">
+                        <div class="day-header">Hét</div><div class="day-header">Ked</div><div class="day-header">Sze</div>
+                        <div class="day-header">Csü</div><div class="day-header">Pén</div><div class="day-header">Szo</div><div class="day-header text-red-500">Vas</div>
+                    </div>
+                    <div id="calendarGrid" class="calendar-grid"></div>
+                </div>
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex flex-col max-h-[600px]">
+                    <h2 class="text-lg font-bold text-gray-800 mb-4">Munkanapok listája</h2>
+                    <div class="overflow-y-auto flex-1 pr-2 space-y-3" id="workDaysList"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentMode = 'url';
+
+        // =========================================================================
+        // FÜL KONFIGURÁCIÓK - KÖZPONTI TÉRKÉP
+        //  type "block4"  -> dátumok a headerRow sorban; naponként 4 oszlop:
+        //                    [óraszám, kezdés, vég, részleg]. Nevek a nameCol oszlopban.
+        //  type "block3"  -> dátumok a headerRow sorban; naponként 3 oszlop:
+        //                    [kezdés, vég, részleg]. Nevek a nameCol oszlopban.
+        //  type "daily"   -> "Napi humán": egyetlen napra; [kezdés, vég, pozíció].
+        // =========================================================================
+        const TAB_CONFIG = {
+            "Napi humán":    { type: "daily",  headerRow: 0, nameCol: 1 },
+            "Áruházi":       { type: "block3", headerRow: 1, nameCol: 1 },
+            "Hegy":          { type: "block4", headerRow: 0, nameCol: 0 },
+            "Fitnesz":       { type: "block4", headerRow: 0, nameCol: 0 },
+            "Mobility":      { type: "block4", headerRow: 0, nameCol: 0 },
+            "Szezon":        { type: "block4", headerRow: 0, nameCol: 0 },
+            "Futás":         { type: "block4", headerRow: 0, nameCol: 0 },
+            "Csapat":        { type: "block4", headerRow: 0, nameCol: 0 },
+            "Úszás":         { type: "block4", headerRow: 0, nameCol: 0 },
+            "Természet":     { type: "block4", headerRow: 0, nameCol: 0 },
+            "Műhely":        { type: "block4", headerRow: 0, nameCol: 0 },
+            "Vevőszolgálat": { type: "block4", headerRow: 0, nameCol: 0 },
+            "Iroda":         { type: "block4", headerRow: 0, nameCol: 0 },
+            "Copy of JAN":   { type: "block4", headerRow: 0, nameCol: 0 }
+        };
+        const DEFAULT_CONFIG = { type: "block4", headerRow: 0, nameCol: 0 };
+        const REST_CODES = ["P", "PN", "SZ", "TAVOL", "PIHENO", "SZABADSAG"];
+
+        // Magyar és angol hónevek rövidítései (a dátumfelismeréshez)
+        const MONTH_TOKENS = ["jan","feb","mar","már","apr","ápr","maj","máj","jun","jún","jul","júl","aug","sep","sept","szep","oct","okt","nov","dec"];
+
+        const LOG = (...args) => console.log('%c[Beosztás]', 'color:#2563eb;font-weight:bold', ...args);
+        const WARN = (...args) => console.warn('%c[Beosztás]', 'color:#d97706;font-weight:bold', ...args);
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const today = new Date();
+            document.getElementById('scheduleMonth').value = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0');
+            document.getElementById('personName').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') processData();
+            });
+        });
+
+        function switchTab(mode) {
+            currentMode = mode;
+            hideError();
+            const urlBtn = document.getElementById('tabUrlBtn');
+            const csvBtn = document.getElementById('tabCsvBtn');
+            const secUrl = document.getElementById('sectionUrl');
+            const secCsv = document.getElementById('sectionCsv');
+            if (mode === 'url') {
+                urlBtn.className = "flex-1 bg-white shadow-sm py-2 text-sm font-medium rounded-md text-gray-700 flex justify-center items-center gap-2 transition-all cursor-pointer";
+                csvBtn.className = "flex-1 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 flex justify-center items-center gap-2 transition-all cursor-pointer";
+                secUrl.classList.remove('hidden'); secCsv.classList.add('hidden');
+            } else {
+                csvBtn.className = "flex-1 bg-white shadow-sm py-2 text-sm font-medium rounded-md text-gray-700 flex justify-center items-center gap-2 transition-all cursor-pointer";
+                urlBtn.className = "flex-1 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 flex justify-center items-center gap-2 transition-all cursor-pointer";
+                secCsv.classList.remove('hidden'); secUrl.classList.add('hidden');
+            }
+        }
+
+        function showError(msg) {
+            const errDiv = document.getElementById('errorMsg');
+            errDiv.innerText = msg;
+            errDiv.classList.remove('hidden');
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('debugHint').classList.remove('hidden');
+        }
+        function hideError() {
+            document.getElementById('errorMsg').classList.add('hidden');
+            document.getElementById('debugHint').classList.add('hidden');
+        }
+
+        function removeAccents(str) {
+            return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        }
+
+        function isRestToken(val) {
+            let s = removeAccents(String(val || '').trim().toUpperCase());
+            return REST_CODES.includes(s);
+        }
+
+        function parseTimeStr(timeStr) {
+            let t = String(timeStr).trim();
+            if (t.includes(':')) {
+                const parts = t.split(':');
+                return parseInt(parts[0], 10) + (parseInt(parts[1], 10) / 60);
+            }
+            return parseFloat(t.replace(',', '.'));
+        }
+
+        function calcHoursFromRange(start, end) {
+            const s = parseTimeStr(start);
+            const e = parseTimeStr(end);
+            if (isNaN(s) || isNaN(e)) return 0;
+            let diff = e - s;
+            if (diff < 0) diff += 24;
+            return diff;
+        }
+
+        function parseHourCount(val) {
+            let s = String(val || '').trim().replace(',', '.');
+            if (s === '' || isRestToken(s)) return NaN;
+            let n = parseFloat(s);
+            return (!isNaN(n) && n > 0 && n <= 24) ? n : NaN;
+        }
+
+        // Dátum/napszám kinyerése: szám, ISO, ÉÉÉÉ.HH.NN, HH/NN/ÉÉÉÉ, és hónapneves formátum is
+        function extractDayNum(cellVal) {
+            let raw = String(cellVal || '').trim();
+            if (!raw) return null;
+            let s = raw.replace(/\s+/g, "");
+
+            // 1) Sima napszám 1-31
+            if (/^\d{1,2}$/.test(s)) {
+                let n = parseInt(s, 10);
+                return (n >= 1 && n <= 31) ? n : null;
+            }
+
+            // 2) Hónapneves formátum (pl. "2026.júl.1." vagy "júl.1." vagy "jul1,2026")
+            let low = removeAccents(raw.toLowerCase());
+            if (MONTH_TOKENS.some(m => low.includes(m))) {
+                // keressük az utolsó 1-2 jegyű számot, ami nem az év (nem 4 jegyű)
+                let nums = low.match(/\d{1,2}/g);
+                if (nums) {
+                    for (let num of nums) {
+                        let n = parseInt(num, 10);
+                        if (n >= 1 && n <= 31) return n; // első értelmes nap
+                    }
+                }
+            }
+
+            // 3) Elválasztós formátumok
+            let s2 = s.endsWith('.') ? s.slice(0, -1) : s;
+            let parts = s2.split(/[\/\-\.]+/).filter(p => p !== '');
+            if (parts.length === 3) {
+                if (parts[0].length === 4) { // ÉÉÉÉ-HH-NN
+                    let d = parseInt(parts[2], 10);
+                    if (d >= 1 && d <= 31) return d;
+                } else if (parts[2].length === 4) { // NN-HH-ÉÉÉÉ / HH-NN-ÉÉÉÉ
+                    let p0 = parseInt(parts[0], 10);
+                    let p1 = parseInt(parts[1], 10);
+                    if (p0 > 12 && p0 <= 31) return p0;
+                    if (p1 > 12 && p1 <= 31) return p1;
+                    if (p1 >= 1 && p1 <= 31) return p1;
+                }
+            }
+            return null;
+        }
+
+        function scanRowForDays(row) {
+            let map = {};
+            if (!row) return map;
+            for (let j = 0; j < row.length; j++) {
+                let d = extractDayNum(row[j]);
+                if (d !== null && map[d] === undefined) map[d] = j;
+            }
+            return map;
+        }
+
+        // gid kinyerése a beillesztett linkből
+        function extractGid(url) {
+            let m = url.match(/[?#&]gid=(\d+)/);
+            return m ? m[1] : null;
+        }
+
+        function processData() {
+            hideError();
+            document.getElementById('results').classList.add('hidden');
+            console.clear();
+            LOG('=== Indítás ===');
+
+            const sheetName = document.getElementById('sheetName').value;
+            const personName = document.getElementById('personName').value.trim();
+            const monthVal = document.getElementById('scheduleMonth').value;
+            LOG('Kiválasztott fül:', sheetName, '| Név:', personName, '| Hónap:', monthVal, '| Mód:', currentMode);
+
+            if (!sheetName || !personName || !monthVal) {
+                showError('Kérlek add meg a Fület, a hónapot és a nevedet!');
+                return;
+            }
+            document.getElementById('loading').classList.remove('hidden');
+
+            if (currentMode === 'url') {
+                const url = document.getElementById('sheetUrl').value.trim();
+                if (!url) { showError('Kérlek add meg a linket!'); return; }
+
+                // 1. eset: a felhasználó már a "Publish to web" CSV linket adta meg (/pub?...output=csv)
+                if (/\/pub\?/.test(url) || /output=csv/.test(url)) {
+                    LOG('Közzétett (Publish to web) CSV link észlelve, közvetlen használat.');
+                    tryDownload([url], 0, personName, monthVal, sheetName);
+                    return;
+                }
+
+                const match = url.match(/\/d\/(?:e\/)?([a-zA-Z0-9-_]+)/);
+                if (!match) { showError('Érvénytelen Google Sheets link!'); return; }
+                const sheetId = match[1];
+                const gid = extractGid(url);
+                LOG('Sheet ID:', sheetId, '| gid a linkből:', gid);
+
+                // Több végpontot próbálunk sorban a CORS megkerülésére
+                let candidates = [];
+                if (gid) {
+                    // gviz végpont – ez a legmegbízhatóbb CORS szempontjából
+                    candidates.push(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&gid=${gid}`);
+                    candidates.push(`https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`);
+                } else {
+                    candidates.push(`https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`);
+                    candidates.push(`https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&sheet=${encodeURIComponent(sheetName)}`);
+                    WARN('A linkben nincs gid. A fül neve alapján próbálok tölteni, ami kevésbé megbízható. Másold a kívánt fül linkjét (gid-del), vagy használd a "Publish to web" módszert!');
+                }
+                LOG('Próbálandó végpontok:', candidates);
+                tryDownload(candidates, 0, personName, monthVal, sheetName);
+            } else {
+                const fileInput = document.getElementById('csvFileInput');
+                if (fileInput.files.length === 0) { showError("Kérlek válassz ki egy .csv fájlt!"); return; }
+                Papa.parse(fileInput.files[0], {
+                    complete: function(results) {
+                        document.getElementById('loading').classList.add('hidden');
+                        LOG('CSV beolvasva. Sorok száma:', results.data.length);
+                        analyzeData(results.data, personName, monthVal, sheetName);
+                    },
+                    error: function(err) {
+                        WARN('CSV hiba:', err);
+                        showError('Hiba a CSV beolvasásakor.');
+                    }
+                });
+            }
+        }
+
+        // Sorban próbálja a végpontokat; ha az egyik CORS/hiba miatt elbukik, jön a következő
+        function tryDownload(urls, idx, personName, monthVal, sheetName) {
+            if (idx >= urls.length) {
+                showError('Egyik letöltési mód sem működött (valószínűleg CORS-blokk). A legbiztosabb megoldás: a Google Sheetsben Fájl → Megosztás → Közzététel a weben → a kívánt fül, CSV formátum, majd azt a linket illeszd be ide. Vagy töltsd le a fület CSV-ként és használd a "Helyi CSV fájl" fület. Részletek a konzolban (F12).');
+                return;
+            }
+            LOG(`Letöltési kísérlet ${idx + 1}/${urls.length}:`, urls[idx]);
+            Papa.parse(urls[idx], {
+                download: true,
+                complete: function(results) {
+                    if (!results.data || results.data.length < 2) {
+                        WARN('Üres vagy túl rövid válasz, következő végpont...');
+                        tryDownload(urls, idx + 1, personName, monthVal, sheetName);
+                        return;
+                    }
+                    document.getElementById('loading').classList.add('hidden');
+                    LOG('Letöltés sikeres. Sorok száma:', results.data.length);
+                    analyzeData(results.data, personName, monthVal, sheetName);
+                },
+                error: function(err) {
+                    WARN(`Hiba a(z) ${idx + 1}. végpontnál:`, err, '— következő próbálkozás...');
+                    tryDownload(urls, idx + 1, personName, monthVal, sheetName);
+                }
+            });
+        }
+
+        function findPersonRow(data, searchName, nameCol, startRow) {
+            let target = removeAccents(searchName.toLowerCase());
+            for (let i = startRow; i < data.length; i++) {
+                let row = data[i];
+                if (!row || nameCol >= row.length) continue;
+                let cell = removeAccents(String(row[nameCol] || '').trim().toLowerCase());
+                if (cell === target) { LOG(`Személy megtalálva (pontos egyezés) a(z) ${i}. sorban, "${nameCol}" oszlopban.`); return row; }
+            }
+            for (let i = startRow; i < data.length; i++) {
+                let row = data[i];
+                if (!row || nameCol >= row.length) continue;
+                let cell = removeAccents(String(row[nameCol] || '').trim().toLowerCase());
+                if (cell && cell.includes(target)) { LOG(`Személy megtalálva (részleges egyezés) a(z) ${i}. sorban.`); return row; }
+            }
+            for (let i = startRow; i < data.length; i++) {
+                let row = data[i];
+                if (!row || row.length === 0) continue;
+                let joined = removeAccents(row.join(' ').toLowerCase());
+                if (joined.includes(target)) { WARN(`Személy csak vészhelyzeti kereséssel találva a(z) ${i}. sorban (nem a név-oszlopban).`); return row; }
+            }
+            return null;
+        }
+
+        function analyzeData(data, searchName, monthVal, selectedTab) {
+            if (!data || data.length < 2) { showError('A táblázat üres vagy sérült.'); return; }
+
+            // Az első néhány sor naplózása diagnosztikához
+            LOG('--- Letöltött adat első 4 sora (max 12 oszlop) ---');
+            for (let i = 0; i < Math.min(4, data.length); i++) {
+                LOG(`sor${i}:`, (data[i] || []).slice(0, 12));
+            }
+
+            let cfg = TAB_CONFIG[selectedTab];
+            if (!cfg) {
+                cfg = DEFAULT_CONFIG;
+                WARN(`A(z) "${selectedTab}" fül nincs a konfigurációban. Alapértelmezett: ${DEFAULT_CONFIG.type}, headerRow ${DEFAULT_CONFIG.headerRow}.`);
+            }
+            LOG('Konfiguráció:', cfg);
+
+            let headerRowIndex = cfg.headerRow;
+            let dayColumns = (data.length > headerRowIndex) ? scanRowForDays(data[headerRowIndex]) : {};
+            LOG(`Konfigurált ${headerRowIndex}. sorban talált dátumok száma:`, Object.keys(dayColumns).length, dayColumns);
+
+            if (Object.keys(dayColumns).length < 10) {
+                WARN(`A konfigurált ${headerRowIndex}. sorban kevés dátum van. Vészhelyzeti keresés indul (első 25 sor)...`);
+                let foundIdx = -1, foundMap = {};
+                for (let i = 0; i < Math.min(25, data.length); i++) {
+                    let m = scanRowForDays(data[i]);
+                    LOG(`  sor${i}: ${Object.keys(m).length} dátum`);
+                    if (Object.keys(m).length > 10) { foundIdx = i; foundMap = m; break; }
+                }
+                if (foundIdx !== -1) {
+                    WARN(`Vészhelyzeti keresés: dátumok a ${foundIdx}. sorban (${Object.keys(foundMap).length} db).`);
+                    headerRowIndex = foundIdx;
+                    dayColumns = foundMap;
+                } else {
+                    WARN('A vészhelyzeti keresés sem talált elég dátumot egyik sorban sem.');
+                }
+            }
+
+            if (Object.keys(dayColumns).length === 0) {
+                WARN('VÉGSŐ: Egyetlen dátumot sem találtam. A 0-3. sorok tartalma fent látható.');
+                showError(`Nem találtam dátumokat a(z) "${selectedTab}" fülön. Lehet, hogy a link a rossz fület tölti be (másold a kívánt fül linkjét a Google Sheetsből, gid-del), vagy a dátumok formátuma szokatlan. A részletes napló a konzolban van (F12 → Console).`);
+                return;
+            }
+
+            const personRow = findPersonRow(data, searchName, cfg.nameCol, headerRowIndex + 1);
+            if (!personRow) {
+                WARN(`"${searchName}" nem található a(z) "${selectedTab}" fülön.`);
+                showError(`Nem találtam "${searchName}" nevű munkavállalót a(z) "${selectedTab}" fülön. Ellenőrizd a fület és a név pontos írásmódját.`);
+                return;
+            }
+            LOG('Személy sora (max 16 oszlop):', personRow.slice(0, 16));
+
+            const [year, month] = monthVal.split('-');
+            const startDate = new Date(year, parseInt(month) - 1, 1);
+            const daysInMonth = new Date(year, month, 0).getDate();
+            const colsPerDay = (cfg.type === 'block4') ? 4 : 3;
+            LOG(`Hónap: ${year}.${month} (${daysInMonth} nap), oszlop/nap: ${colsPerDay}`);
+
+            let schedule = {};
+            let totalHours = 0, monSatHours = 0, sunHours = 0;
+            let workCount = 0;
+
+            for (let day = 1; day <= daysInMonth; day++) {
+                let colIndex = dayColumns[day];
+                let shiftText = 'Pihenőnap';
+                let isWork = false;
+                let hours = 0;
+
+                if (colIndex !== undefined) {
+                    let cells = [];
+                    for (let w = 0; w < colsPerDay; w++) {
+                        cells.push(String(personRow[colIndex + w] || '').trim());
+                    }
+                    let isRest = cells.some(c => c !== '' && isRestToken(c));
+
+                    if (!isRest) {
+                        if (cfg.type === 'block4') {
+                            let hourCount = parseHourCount(cells[0]);
+                            let start = cells[1], end = cells[2], dept = cells[3];
+                            if (!isNaN(hourCount)) {
+                                hours = hourCount;
+                                shiftText = (start && end) ? `${start}-${end}` : (dept || `${hourCount} óra`);
+                                isWork = true;
+                            } else if (start && end && !isRestToken(start) && !isRestToken(end)) {
+                                hours = calcHoursFromRange(start, end);
+                                if (hours > 0) { shiftText = `${start}-${end}`; isWork = true; }
+                            }
+                        } else {
+                            let start = cells[0], end = cells[1], dept = cells[2];
+                            if (start && end && !isRestToken(start) && !isRestToken(end)) {
+                                hours = calcHoursFromRange(start, end);
+                                if (hours > 0) { shiftText = `${start}-${end}`; isWork = true; }
+                            }
+                        }
+                    }
+                    if (!isWork) {
+                        let label = cells.find(c => c !== '');
+                        shiftText = label ? label : 'Pihenőnap';
+                    }
+                }
+
+                if (isWork) {
+                    let dow = new Date(year, parseInt(month) - 1, day).getDay();
+                    totalHours += hours;
+                    workCount++;
+                    if (dow === 0) sunHours += hours; else monSatHours += hours;
+                }
+                schedule[day] = { text: shiftText, hours: hours, isWork: isWork };
+            }
+
+            LOG(`KÉSZ. Munkanapok: ${workCount} | Összes óra: ${totalHours} | Hétköznap+Szo: ${monSatHours} | Vasárnap: ${sunHours}`);
+            renderUI(year, month, daysInMonth, startDate, schedule, totalHours, monSatHours, sunHours);
+        }
+
+        function fmtHours(h) { return h.toFixed(1).replace('.0', ''); }
+        function fmtFt(n) { return Math.round(n).toLocaleString('hu-HU') + ' Ft'; }
+
+        function renderUI(year, month, daysInMonth, startDate, schedule, totalHours, monSatHours, sunHours) {
+            document.getElementById('sumTotal').innerText = fmtHours(totalHours) + ' óra';
+            document.getElementById('sumMonSat').innerText = fmtHours(monSatHours) + ' óra';
+            document.getElementById('sumSun').innerText = fmtHours(sunHours) + ' óra';
+
+            // --- Fizetésbecslés ---
+            let wageMonSat = parseFloat(document.getElementById('wageMonSat').value) || 0;
+            let wageSun = parseFloat(document.getElementById('wageSun').value) || 0;
+            let payMonSat = monSatHours * wageMonSat;
+            let paySun = sunHours * wageSun;
+            let payTotal = payMonSat + paySun;
+            document.getElementById('payMonSat').innerText = fmtFt(payMonSat);
+            document.getElementById('paySun').innerText = fmtFt(paySun);
+            document.getElementById('payTotal').innerText = fmtFt(payTotal);
+            document.getElementById('payMonSatDetail').innerText = `${fmtHours(monSatHours)} óra × ${wageMonSat.toLocaleString('hu-HU')} Ft`;
+            document.getElementById('paySunDetail').innerText = `${fmtHours(sunHours)} óra × ${wageSun.toLocaleString('hu-HU')} Ft`;
+            LOG(`Fizetés: hétköznap+szo ${fmtFt(payMonSat)} + vasárnap ${fmtFt(paySun)} = ${fmtFt(payTotal)}`);
+
+            const monthNames = ["Január","Február","Március","Április","Május","Június","Július","Augusztus","Szeptember","Október","November","December"];
+            document.getElementById('calendarTitle').innerText = `${year}. ${monthNames[parseInt(month)-1]}`;
+
+            const calendarGrid = document.getElementById('calendarGrid');
+            const workDaysList = document.getElementById('workDaysList');
+            calendarGrid.innerHTML = ''; workDaysList.innerHTML = '';
+
+            let startDay = startDate.getDay();
+            if (startDay === 0) startDay = 7;
+            for (let i = 1; i < startDay; i++) {
+                let empty = document.createElement('div');
+                empty.className = 'calendar-day bg-transparent border-transparent';
+                calendarGrid.appendChild(empty);
+            }
+
+            const dayNames = ["Vasárnap","Hétfő","Kedd","Szerda","Csütörtök","Péntek","Szombat"];
+            for (let day = 1; day <= daysInMonth; day++) {
+                let d = schedule[day];
+                let dayDate = new Date(year, parseInt(month) - 1, day);
+                let isSunday = dayDate.getDay() === 0;
+
+                let div = document.createElement('div');
+                div.className = `calendar-day ${d.isWork ? 'work-day' : 'rest-day'}`;
+                div.innerHTML = `
+                    <span class="font-bold text-sm ${isSunday ? 'text-red-500' : 'text-gray-700'}">${day}.</span>
+                    <span class="text-[10px] md:text-xs font-medium mt-1 truncate ${d.isWork ? 'text-blue-800' : 'text-gray-400'}" title="${d.text}">${d.text}</span>
+                `;
+                calendarGrid.appendChild(div);
+
+                if (d.isWork) {
+                    let card = document.createElement('div');
+                    card.className = 'flex justify-between items-center p-3 bg-gray-50 border border-gray-100 rounded-lg border-l-4 border-l-blue-500';
+                    card.innerHTML = `
+                        <div>
+                            <p class="font-bold text-gray-800">${monthNames[parseInt(month)-1]} ${day}. <span class="text-xs font-normal text-gray-500 ml-1">(${dayNames[dayDate.getDay()]})</span></p>
+                            <p class="text-sm text-blue-600 font-medium">${d.text}</p>
+                        </div>
+                        <div class="text-right"><span class="bg-blue-100 text-blue-800 text-xs font-bold px-2 py-1 rounded">${fmtHours(d.hours)} óra</span></div>
+                    `;
+                    workDaysList.appendChild(card);
+                }
+            }
+            if (workDaysList.innerHTML === '') {
+                workDaysList.innerHTML = '<p class="text-gray-500 text-sm italic text-center py-4">Nincsenek munkanapok ebben a hónapban.</p>';
+            }
+
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.classList.remove('hidden');
+            resultsDiv.scrollIntoView({ behavior: 'smooth' });
+        }
+    </script>
+</body>
+</html>
