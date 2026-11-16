@@ -6,6 +6,7 @@
     <title>Beosztás Néző</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <style>
         .calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
         .calendar-day { border: 1px solid #e5e7eb; border-radius: 4px; padding: 8px; min-height: 80px; min-width: 0; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }
@@ -80,6 +81,11 @@
                 </div>
             </div>
             <div id="sectionUrl" class="space-y-4">
+                <div class="flex flex-col sm:flex-row sm:items-center gap-3 bg-gray-50 border border-gray-200 rounded-lg p-3">
+                    <button id="googleBtn" type="button" onclick="googleSignIn()" class="bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 font-medium py-2 px-4 rounded-md text-sm whitespace-nowrap">Bejelentkezés Google-lel</button>
+                    <button id="googleOutBtn" type="button" onclick="googleSignOut()" class="hidden bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 font-medium py-2 px-4 rounded-md text-sm whitespace-nowrap">Kijelentkezés</button>
+                    <p id="googleStatus" class="text-xs text-gray-500"></p>
+                </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Google Sheets megosztási link</label>
                     <input type="text" id="sheetUrl" placeholder="https://docs.google.com/spreadsheets/d/...  (a kívánt fül linkje, gid-del)" class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
@@ -148,6 +154,98 @@
 
     <script>
         let currentMode = 'url';
+
+        // =========================================================================
+        // GOOGLE BEJELENTKEZÉS (csak olvasási jog a Google Sheetshez)
+        // =========================================================================
+        const GOOGLE_CLIENT_ID = '283725452418-mbdtq74ahqlq8ieusht1jmp6giscssiu.apps.googleusercontent.com';
+        const GOOGLE_SCOPE = 'https://www.googleapis.com/auth/spreadsheets.readonly';
+        let googleToken = null, googleTokenExp = 0, tokenClient = null, apiFailNote = '';
+
+        function loadStoredToken() {
+            try {
+                const t = sessionStorage.getItem('gToken'), x = parseInt(sessionStorage.getItem('gTokenExp') || '0', 10);
+                if (t && Date.now() < x - 60000) { googleToken = t; googleTokenExp = x; }
+            } catch (e) {}
+        }
+        function storeToken() {
+            try { sessionStorage.setItem('gToken', googleToken || ''); sessionStorage.setItem('gTokenExp', String(googleTokenExp)); } catch (e) {}
+        }
+        function googleSignedIn() { return !!googleToken && Date.now() < googleTokenExp - 60000; }
+
+        function updateGoogleUI() {
+            const inn = googleSignedIn();
+            document.getElementById('googleBtn').classList.toggle('hidden', inn);
+            document.getElementById('googleOutBtn').classList.toggle('hidden', !inn);
+            document.getElementById('googleStatus').innerText = inn
+                ? 'Bejelentkezve – a veled megosztott táblák másolat nélkül megnyílnak (illeszd be a tábla linkjét).'
+                : 'Nincs bejelentkezve. Jelentkezz be a céges Google-fiókkal, ha a táblák veled vannak megosztva.';
+        }
+
+        function googleSignIn() {
+            if (!(window.google && google.accounts && google.accounts.oauth2)) {
+                showError('A Google bejelentkezés szkriptje nem töltődött be (internetkapcsolat vagy tartalomblokkoló?). Frissítsd az oldalt, és próbáld újra.');
+                return;
+            }
+            hideError();
+            if (!tokenClient) {
+                tokenClient = google.accounts.oauth2.initTokenClient({
+                    client_id: GOOGLE_CLIENT_ID,
+                    scope: GOOGLE_SCOPE,
+                    callback: (resp) => {
+                        if (resp.error) { WARN('Google hiba:', resp); showError('A bejelentkezés nem sikerült: ' + (resp.error_description || resp.error)); return; }
+                        googleToken = resp.access_token;
+                        googleTokenExp = Date.now() + (parseInt(resp.expires_in, 10) || 3600) * 1000;
+                        storeToken();
+                        updateGoogleUI();
+                        LOG('Google bejelentkezés sikeres.');
+                    },
+                    error_callback: (err) => { WARN('Google popup hiba:', err); showError('A bejelentkezési ablak nem nyílt meg, vagy be lett zárva. Engedélyezd a felugró ablakokat, és próbáld újra.'); }
+                });
+            }
+            tokenClient.requestAccessToken();
+        }
+
+        function googleSignOut() {
+            const t = googleToken;
+            googleToken = null; googleTokenExp = 0; storeToken(); updateGoogleUI();
+            try { if (t && window.google && google.accounts) google.accounts.oauth2.revoke(t, () => LOG('Token visszavonva.')); } catch (e) {}
+        }
+
+        async function fetchViaApi(sheetId, gid, sheetName) {
+            const headers = { 'Authorization': 'Bearer ' + googleToken };
+            const check = (res) => {
+                if (res.ok) return;
+                const err = new Error('HTTP ' + res.status);
+                err.status = res.status;
+                throw err;
+            };
+            const metaRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}?fields=sheets.properties(sheetId,title)`, { headers });
+            check(metaRes);
+            const meta = await metaRes.json();
+            const sheets = (meta.sheets || []).map(s => s.properties);
+            let prop = gid ? sheets.find(p => String(p.sheetId) === String(gid)) : null;
+            if (!prop) prop = sheets.find(p => p.title === sheetName);
+            if (!prop) { const err = new Error('Nem található a fül'); err.status = 404; throw err; }
+            LOG('Sheets API fül:', prop.title);
+            const range = encodeURIComponent("'" + prop.title.replace(/'/g, "''") + "'");
+            const valRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${range}?valueRenderOption=FORMATTED_VALUE&majorDimension=ROWS`, { headers });
+            check(valRes);
+            const vals = await valRes.json();
+            return vals.values || [];
+        }
+
+        function apiErrorNote(err) {
+            if (err && err.status === 401) {
+                googleToken = null; googleTokenExp = 0; storeToken(); updateGoogleUI();
+                return 'A Google bejelentkezés lejárt, jelentkezz be újra.';
+            }
+            if (err && (err.status === 403 || err.status === 404)) return 'A bejelentkezett Google-fiókkal nem érhető el ez a tábla (nincs megosztva veled, vagy a fül nem található).';
+            return 'A Google Sheets API-s letöltés nem sikerült.';
+        }
+
+        document.addEventListener('DOMContentLoaded', () => { loadStoredToken(); updateGoogleUI(); });
+
 
         // =========================================================================
         // FÜL KONFIGURÁCIÓK - KÖZPONTI TÉRKÉP
@@ -364,7 +462,21 @@
                     WARN('A linkben nincs gid. A fül neve alapján próbálok tölteni, ami kevésbé megbízható. Másold a kívánt fül linkjét (gid-del), vagy használd a "Publish to web" módszert!');
                 }
                 LOG('Próbálandó végpontok:', candidates);
-                tryDownload(candidates, 0, personName, monthVal, sheetName);
+                apiFailNote = '';
+                if (googleSignedIn()) {
+                    LOG('Google-bejelentkezés aktív, Sheets API próbálkozás...');
+                    fetchViaApi(sheetId, gid, sheetName).then(rows => {
+                        document.getElementById('loading').classList.add('hidden');
+                        LOG('Sheets API letöltés sikeres. Sorok száma:', rows.length);
+                        analyzeData(rows, personName, monthVal, sheetName);
+                    }).catch(err => {
+                        WARN('Sheets API hiba:', err);
+                        apiFailNote = apiErrorNote(err);
+                        tryDownload(candidates, 0, personName, monthVal, sheetName);
+                    });
+                } else {
+                    tryDownload(candidates, 0, personName, monthVal, sheetName);
+                }
             } else {
                 const fileInput = document.getElementById('csvFileInput');
                 if (fileInput.files.length === 0) { showError("Kérlek válassz ki egy .csv fájlt!"); return; }
@@ -385,7 +497,7 @@
         // Sorban próbálja a végpontokat; ha az egyik CORS/hiba miatt elbukik, jön a következő
         function tryDownload(urls, idx, personName, monthVal, sheetName) {
             if (idx >= urls.length) {
-                showError('Egyik letöltési mód sem működött (valószínűleg CORS-blokk). A legbiztosabb megoldás: a Google Sheetsben Fájl → Megosztás → Közzététel a weben → a kívánt fül, CSV formátum, majd azt a linket illeszd be ide. Vagy töltsd le a fület CSV-ként és használd a "Helyi CSV fájl" fület. Részletek a konzolban (F12).');
+                showError((apiFailNote ? apiFailNote + ' ' : '') + 'Egyik letöltési mód sem működött (valószínűleg CORS-blokk). A legbiztosabb megoldás: a Google Sheetsben Fájl → Megosztás → Közzététel a weben → a kívánt fül, CSV formátum, majd azt a linket illeszd be ide. Vagy töltsd le a fület CSV-ként és használd a "Helyi CSV fájl" fület. Részletek a konzolban (F12).');
                 return;
             }
             LOG(`Letöltési kísérlet ${idx + 1}/${urls.length}:`, urls[idx]);
